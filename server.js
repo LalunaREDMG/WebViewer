@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const dotenv = require('dotenv');
 const { google } = require('googleapis');
+const fs = require('fs');
 
 // Load environment variables
 dotenv.config();
@@ -11,7 +12,15 @@ const PORT = process.env.PORT || 3000;
 
 // Middleware
 app.use(express.json());
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public'), {
+    setHeaders: (res, path) => {
+        if (path.endsWith('.js')) {
+            res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+        } else if (path.endsWith('.css')) {
+            res.setHeader('Content-Type', 'text/css; charset=utf-8');
+        }
+    }
+}));
 
 // Add security headers
 app.use((req, res, next) => {
@@ -325,9 +334,27 @@ app.get('/dashboard.html', requireAuth, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
 });
 
-// Basic routes
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// Update the catch-all route
+app.get('*', (req, res) => {
+    // Skip API routes
+    if (req.url.startsWith('/api/')) return next();
+    
+    const filePath = path.join(__dirname, 'public', req.url);
+    
+    // Check file extension
+    const ext = path.extname(req.url);
+    
+    if (ext === '.css') {
+        res.setHeader('Content-Type', 'text/css; charset=utf-8');
+    } else if (ext === '.js') {
+        res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    }
+    
+    if (fs.existsSync(filePath)) {
+        res.sendFile(filePath);
+    } else {
+        res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    }
 });
 
 // Add route for files
