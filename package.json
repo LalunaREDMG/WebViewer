@@ -1,5 +1,5 @@
 {
-  "name": "sales-login-portal",
+  "name": "sales-dashboard",
   "version": "1.0.0",
   "description": "Sales Portal Login Page",
   "main": "server.js",
@@ -18,5 +18,8 @@
   },
   "devDependencies": {
     "nodemon": "^2.0.12"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }

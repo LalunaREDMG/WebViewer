@@ -27,10 +27,17 @@ let drive;
 async function initializeDrive() {
     try {
         let serviceAccount;
+        
         if (process.env.SERVICE_ACCOUNT_KEY) {
+            console.log('Using service account from environment variable');
             serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
         } else {
+            console.log('Using service account from local file');
             serviceAccount = require('./service-account-key.json');
+        }
+
+        if (!serviceAccount) {
+            throw new Error('No service account credentials found');
         }
 
         const auth = new google.auth.GoogleAuth({
@@ -47,9 +54,15 @@ async function initializeDrive() {
             auth: client
         });
         
+        // Test the connection
+        await drive.files.list({ pageSize: 1 });
+        console.log('Successfully initialized Google Drive API');
         return true;
     } catch (error) {
         console.error('Error initializing Drive API:', error.message);
+        if (error.response) {
+            console.error('API Response:', error.response.data);
+        }
         return false;
     }
 }

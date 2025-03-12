@@ -79,9 +79,7 @@
     padding: 2rem;
     margin-left: var(--sidebar-width);
     width: calc(100% - var(--sidebar-width));
-    min-height: 100vh;
-    overflow-y: auto; /* Enable vertical scrolling */
-    -webkit-overflow-scrolling: touch; /* Smooth scrolling on iOS */
+    overflow-y: auto;
 }
 
 header {
@@ -305,9 +303,10 @@ header {
 
 .sales-chart-card {
     grid-column: 1 / -1;
-    min-height: 300px;
+    min-height: 400px;
     height: auto;
-    padding: 1rem;
+    margin-bottom: 2rem;
+    padding: 1.5rem;
     background: rgba(10, 25, 47, 0.8);
     border: 1px solid rgba(64, 192, 255, 0.2);
     border-radius: 12px;
@@ -318,8 +317,8 @@ header {
 
 .sales-chart-card canvas {
     width: 100% !important;
-    height: 280px !important;
-    max-height: 50vh;
+    height: 400px !important;
+    max-height: 70vh;
 }
 
 .sales-chart-card h3 {
@@ -357,15 +356,24 @@ header {
 
 /* Mobile adjustments */
 @media (max-width: 768px) {
+    body {
+        overflow: auto !important;
+        position: relative !important;
+        height: auto !important;
+    }
+
     .dashboard-container {
-        flex-direction: column;
+        height: auto;
+        min-height: 100vh;
     }
 
     .main-content {
         margin-left: 0;
         width: 100%;
-        padding: 0.75rem;
+        padding: 1rem;
         padding-top: 4rem;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     /* Adjust header for mobile */
@@ -417,8 +425,7 @@ header {
 
     /* Adjust chart card for mobile */
     .sales-chart-card {
-        padding: 0.75rem;
-        min-height: auto;
+        min-height: 350px;
         margin-bottom: 1rem;
     }
 
@@ -429,8 +436,7 @@ header {
     }
 
     .sales-chart-card canvas {
-        height: 250px !important;
-        margin-top: 0.5rem;
+        height: 300px !important;
     }
 
     /* Sidebar styles */
@@ -513,12 +519,19 @@ header {
         margin-left: 0;
         padding-top: 4.5rem;
     }
+
+    /* Remove fixed positioning that might interfere with scrolling */
+    .background-animation,
+    .futuristic-elements {
+        position: fixed;
+        pointer-events: none;
+    }
 }
 
 /* Small mobile adjustments */
 @media (max-width: 480px) {
     .main-content {
-        padding: 0.5rem;
+        padding: 0.75rem;
         padding-top: 4rem;
     }
 
@@ -540,11 +553,11 @@ header {
     }
 
     .sales-chart-card {
-        padding: 0.75rem;
+        min-height: 300px;
     }
 
     .sales-chart-card canvas {
-        height: 220px !important;
+        height: 250px !important;
     }
 
     .sales-chart-card h3 {
@@ -568,24 +581,18 @@ header {
     }
 }
 
-/* Fix scrolling issues on mobile */
+/* Remove any fixed height constraints */
+html, body {
+    height: auto;
+    min-height: 100vh;
+    overflow-x: hidden;
+}
+
+/* Ensure content is scrollable */
 .mobile-scroll {
     position: relative !important;
-    overflow-y: auto !important;
-    height: 100% !important;
-    -webkit-overflow-scrolling: touch;
-}
-
-.mobile-scroll .dashboard-container {
-    min-height: 100vh;
-    padding-bottom: 2rem;
-}
-
-/* Ensure sidebar doesn't affect scrolling */
-.sidebar {
-    position: fixed;
-    height: 100%;
-    overflow-y: auto;
+    overflow: auto !important;
+    height: auto !important;
     -webkit-overflow-scrolling: touch;
 }
 
@@ -652,8 +659,9 @@ html {
 /* Add these styles for mobile scrolling */
 .mobile-scroll {
     position: relative !important;
-    overflow: auto !important;
-    height: auto !important;
+    overflow-y: auto !important;
+    height: 100% !important;
+    -webkit-overflow-scrolling: touch;
 }
 
 .mobile-scroll .background-animation,
