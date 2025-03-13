@@ -12,6 +12,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/webhook/drive",
+      "destination": "/server.js"
+    },
+    {
       "source": "/api/sales/:path*",
       "destination": "/server.js"
     },
@@ -22,10 +26,6 @@
     {
       "source": "/((?!api/).*)",
       "destination": "/public/$1"
-    },
-    {
-      "source": "/api/webhook/drive",
-      "destination": "/server.js"
     }
   ],
   "headers": [
@@ -52,7 +52,7 @@
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "1234",
     "NODE_ENV": "production",
-    "DOMAIN": "your-domain.com"
+    "DOMAIN": "your-vercel-domain.vercel.app"
   },
   "dependencies": {
     "ws": "^8.x.x"

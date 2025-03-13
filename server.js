@@ -3,17 +3,12 @@ const path = require('path');
 const dotenv = require('dotenv');
 const { google } = require('googleapis');
 const fs = require('fs');
-const WebSocket = require('ws');
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Add WebSocket support - Move this up here
-const server = require('http').createServer(app);
-const wss = new WebSocket.Server({ server });
 
 // Middleware
 app.use(express.json());
@@ -620,77 +615,62 @@ async function checkForUpdates() {
     }
 }
 
-// Then move all WebSocket-related code here
-wss.on('connection', (ws) => {
-    console.log('Client connected');
+// Add SSE endpoint
+app.get('/api/updates', (req, res) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
     
-    let isAlive = true;
+    // Send initial connection message
+    res.write('data: {"type":"connected"}\n\n');
     
-    // Only check for updates on initial connection
-    updateAndNotifyClient(ws);
+    // Store the connection
+    const clientId = Date.now();
+    clients.set(clientId, res);
     
-    // Setup heartbeat
-    const pingInterval = setInterval(() => {
-        if (!isAlive) {
-            clearInterval(pingInterval);
-            return ws.terminate();
-        }
-        isAlive = false;
-        ws.ping();
-    }, 30000);
-
-    ws.on('pong', () => {
-        isAlive = true;
-    });
-    
-    ws.on('close', () => {
-        clearInterval(pingInterval);
-        console.log('Client disconnected');
+    // Remove client when connection closes
+    req.on('close', () => {
+        clients.delete(clientId);
     });
 });
 
-// Add function to update and notify client
-async function updateAndNotifyClient(ws) {
-    const hasUpdates = await checkForUpdates();
-    if (hasUpdates && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-            type: 'REFRESH_REQUIRED',
-            timestamp: new Date().toISOString()
-        }));
-    }
+// Store SSE clients
+const clients = new Map();
+
+// Function to notify clients
+function notifyClients(data) {
+    clients.forEach(client => {
+        client.write(`data: ${JSON.stringify(data)}\n\n`);
+    });
 }
 
-// Modify the webhook handler to be the primary trigger for updates
+// Update webhook handler
 app.post('/api/webhook/drive', async (req, res) => {
     try {
         const { headers } = req;
         
-        // Verify the notification is from Google
         if (headers['x-goog-resource-state'] === 'update' || 
             headers['x-goog-resource-state'] === 'create') {
             
             console.log('=== Processing CSV Files ===');
             const hasUpdates = await checkForUpdates();
             if (hasUpdates) {
-                // Clear the cache to force fresh data fetch
+                // Clear the cache
                 salesDataCache = {
                     data: null,
                     lastUpdated: null
                 };
                 
                 // Notify all connected clients
-                wss.clients.forEach((client) => {
-                    if (client.readyState === WebSocket.OPEN) {
-                        client.send(JSON.stringify({
-                            type: 'REFRESH_REQUIRED',
-                            timestamp: new Date().toISOString()
-                        }));
-                    }
+                notifyClients({
+                    type: 'REFRESH_REQUIRED',
+                    timestamp: new Date().toISOString()
                 });
+                
                 console.log('================');
             }
         }
-
+        
         res.status(200).send('OK');
     } catch (error) {
         console.error('Webhook error:', error);

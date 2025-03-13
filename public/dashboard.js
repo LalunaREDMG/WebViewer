@@ -344,47 +344,37 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listen for window resize
     window.addEventListener('resize', updateChartSize);
 
-    // Modify the WebSocket connection code
-    let wsReconnectTimeout;
-    let isUpdating = false;
+    // Replace WebSocket initialization with SSE
+    setupEventSource();
+});
 
-    function setupWebSocket() {
-        const ws = new WebSocket(`ws://${window.location.host}`);
-
-        ws.onmessage = async function(event) {
-            try {
-                if (isUpdating) return;
-                
-                const data = JSON.parse(event.data);
-                if (data.type === 'REFRESH_REQUIRED') {
-                    isUpdating = true;
-                    console.log('New CSV data detected, refreshing...');
-                    await updateSalesChart();
-                    isUpdating = false;
-                }
-            } catch (error) {
-                console.error('Error processing WebSocket message:', error);
+// Replace WebSocket code with SSE
+function setupEventSource() {
+    const eventSource = new EventSource('/api/updates');
+    
+    eventSource.onmessage = async function(event) {
+        try {
+            if (isUpdating) return;
+            
+            const data = JSON.parse(event.data);
+            if (data.type === 'REFRESH_REQUIRED') {
+                isUpdating = true;
+                console.log('New CSV data detected, refreshing...');
+                await updateSalesChart();
                 isUpdating = false;
             }
-        };
-
-        ws.onclose = function() {
-            console.log('WebSocket connection closed. Attempting to reconnect...');
-            clearTimeout(wsReconnectTimeout);
-            wsReconnectTimeout = setTimeout(setupWebSocket, 5000);
-        };
-
-        ws.onerror = function(error) {
-            console.error('WebSocket error:', error);
-        };
-
-        // Cleanup function
-        return () => {
-            clearTimeout(wsReconnectTimeout);
-            ws.close();
-        };
-    }
-
-    // Initialize WebSocket connection
-    setupWebSocket();
-}); 
+        } catch (error) {
+            console.error('Error processing update:', error);
+            isUpdating = false;
+        }
+    };
+    
+    eventSource.onerror = function(error) {
+        console.error('EventSource error:', error);
+        eventSource.close();
+        // Attempt to reconnect after 5 seconds
+        setTimeout(setupEventSource, 5000);
+    };
+    
+    return eventSource;
+} 
