@@ -12,17 +12,25 @@
   ],
   "rewrites": [
     {
+      "source": "/api/sales/:path*",
+      "destination": "/server.js"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "/server.js"
     },
     {
-      "source": "/(.*)",
+      "source": "/((?!api/).*)",
       "destination": "/public/$1"
+    },
+    {
+      "source": "/api/webhook/drive",
+      "destination": "/server.js"
     }
   ],
   "headers": [
     {
-      "source": "/(.*)\\.(js|css)$",
+      "source": "/(.*)\\.(js)$",
       "headers": [
         {
           "key": "Content-Type",
@@ -43,6 +51,10 @@
   "env": {
     "ADMIN_USERNAME": "admin",
     "ADMIN_PASSWORD": "1234",
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "DOMAIN": "your-domain.com"
+  },
+  "dependencies": {
+    "ws": "^8.x.x"
   }
 } 

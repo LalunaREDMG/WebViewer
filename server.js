@@ -3,12 +3,17 @@ const path = require('path');
 const dotenv = require('dotenv');
 const { google } = require('googleapis');
 const fs = require('fs');
+const WebSocket = require('ws');
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Add WebSocket support - Move this up here
+const server = require('http').createServer(app);
+const wss = new WebSocket.Server({ server });
 
 // Middleware
 app.use(express.json());
@@ -33,24 +38,36 @@ app.use((req, res, next) => {
 
 // Initialize Google Drive with service account
 let drive;
+let lastProcessedData = {
+    lastFileId: null,
+    lastRowCount: 0,
+    lastModifiedTime: null
+};
+let serviceAccountCredentials;
+
+// Add cache for sales data
+let salesDataCache = {
+    data: null,
+    lastUpdated: null
+};
+
 async function initializeDrive() {
     try {
-        let serviceAccount;
-        
+        // Store credentials in the top-level variable
         if (process.env.SERVICE_ACCOUNT_KEY) {
             console.log('Using service account from environment variable');
-            serviceAccount = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
+            serviceAccountCredentials = JSON.parse(process.env.SERVICE_ACCOUNT_KEY);
         } else {
             console.log('Using service account from local file');
-            serviceAccount = require('./service-account-key.json');
+            serviceAccountCredentials = require('./service-account-key.json');
         }
 
-        if (!serviceAccount) {
+        if (!serviceAccountCredentials) {
             throw new Error('No service account credentials found');
         }
 
         const auth = new google.auth.GoogleAuth({
-            credentials: serviceAccount,
+            credentials: serviceAccountCredentials,
             scopes: [
                 'https://www.googleapis.com/auth/drive.readonly',
                 'https://www.googleapis.com/auth/drive.metadata.readonly'
@@ -63,7 +80,6 @@ async function initializeDrive() {
             auth: client
         });
         
-        // Test the connection
         await drive.files.list({ pageSize: 1 });
         console.log('Successfully initialized Google Drive API');
         return true;
@@ -335,7 +351,7 @@ app.get('/dashboard.html', requireAuth, (req, res) => {
 });
 
 // Update the catch-all route
-app.get('*', (req, res) => {
+app.get('*', (req, res, next) => {
     // Skip API routes
     if (req.url.startsWith('/api/')) return next();
     
@@ -380,15 +396,44 @@ app.get('/api/drive/files', async (req, res) => {
     }
 });
 
-// Update the daily sales endpoint
-app.get('/api/sales/daily', async (req, res) => {
+// Modify the daily sales endpoint to use caching
+app.get('/api/sales/daily', async (req, res, next) => {
     try {
+        // Check if we have cached data and it's less than 5 minutes old
+        const cacheAge = salesDataCache.lastUpdated ? Date.now() - salesDataCache.lastUpdated : Infinity;
+        if (salesDataCache.data && cacheAge < 300000) { // 5 minutes
+            console.log('Returning cached sales data');
+            return res.json(salesDataCache.data);
+        }
+
         if (!drive) {
             const initialized = await initializeDrive();
             if (!initialized) {
                 throw new Error('Failed to initialize Drive API');
             }
         }
+
+        // Get the most recent file's metadata first
+        const latestFileResponse = await drive.files.list({
+            q: "mimeType='text/csv' and name contains '_Orders_'",
+            fields: 'files(id, modifiedTime)',
+            orderBy: 'modifiedTime desc',
+            pageSize: 1
+        });
+
+        // Check if we need to update
+        if (latestFileResponse.data.files.length > 0) {
+            const latestFile = latestFileResponse.data.files[0];
+            if (lastProcessedData.lastFileId === latestFile.id && 
+                lastProcessedData.lastModifiedTime === latestFile.modifiedTime &&
+                salesDataCache.data) {
+                console.log('No new changes, returning cached data');
+                return res.json(salesDataCache.data);
+            }
+        }
+
+        // If we reach here, we need to fetch new data
+        console.log('Fetching fresh sales data...');
 
         // Get all CSV files that contain '_Orders_'
         const response = await drive.files.list({
@@ -501,22 +546,191 @@ app.get('/api/sales/daily', async (req, res) => {
 
         console.log('Processed sales data:', sortedData);
 
-        res.json({
+        // Before sending response, update cache
+        const responseData = {
             success: true,
             data: sortedData,
             dateRange: {
                 start: startDate.toISOString().split('T')[0],
                 end: currentDate.toISOString().split('T')[0]
             }
-        });
+        };
+
+        salesDataCache = {
+            data: responseData,
+            lastUpdated: Date.now()
+        };
+
+        res.json(responseData);
     } catch (error) {
         console.error('Error getting daily sales:', error);
+        // If error occurs and we have cached data, return it
+        if (salesDataCache.data) {
+            console.log('Error occurred, returning cached data');
+            return res.json(salesDataCache.data);
+        }
         res.status(500).json({
             success: false,
             error: 'Failed to get daily sales data'
         });
     }
 });
+
+// Modify the checkForUpdates function to be more specific
+async function checkForUpdates() {
+    try {
+        if (!drive) {
+            const initialized = await initializeDrive();
+            if (!initialized) return false;
+        }
+
+        // Get the latest CSV file
+        const response = await drive.files.list({
+            q: "mimeType='text/csv' and name contains '_Orders_'",
+            fields: 'files(id, name, modifiedTime)',
+            orderBy: 'modifiedTime desc',
+            pageSize: 1
+        });
+
+        if (!response.data.files || response.data.files.length === 0) {
+            return false;
+        }
+
+        const latestFile = response.data.files[0];
+        
+        // Check if this is new data
+        if (latestFile.id !== lastProcessedData.lastFileId || 
+            latestFile.modifiedTime !== lastProcessedData.lastModifiedTime) {
+            
+            console.log(`New data detected in file: ${latestFile.name}`);
+            
+            // Update tracking data
+            lastProcessedData = {
+                lastFileId: latestFile.id,
+                lastModifiedTime: latestFile.modifiedTime
+            };
+
+            return true;
+        }
+
+        return false;
+    } catch (error) {
+        console.error('Error checking for updates:', error);
+        return false;
+    }
+}
+
+// Then move all WebSocket-related code here
+wss.on('connection', (ws) => {
+    console.log('Client connected');
+    
+    let isAlive = true;
+    
+    // Only check for updates on initial connection
+    updateAndNotifyClient(ws);
+    
+    // Setup heartbeat
+    const pingInterval = setInterval(() => {
+        if (!isAlive) {
+            clearInterval(pingInterval);
+            return ws.terminate();
+        }
+        isAlive = false;
+        ws.ping();
+    }, 30000);
+
+    ws.on('pong', () => {
+        isAlive = true;
+    });
+    
+    ws.on('close', () => {
+        clearInterval(pingInterval);
+        console.log('Client disconnected');
+    });
+});
+
+// Add function to update and notify client
+async function updateAndNotifyClient(ws) {
+    const hasUpdates = await checkForUpdates();
+    if (hasUpdates && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            type: 'REFRESH_REQUIRED',
+            timestamp: new Date().toISOString()
+        }));
+    }
+}
+
+// Modify the webhook handler to be the primary trigger for updates
+app.post('/api/webhook/drive', async (req, res) => {
+    try {
+        const { headers } = req;
+        
+        // Verify the notification is from Google
+        if (headers['x-goog-resource-state'] === 'update' || 
+            headers['x-goog-resource-state'] === 'create') {
+            
+            console.log('=== Processing CSV Files ===');
+            const hasUpdates = await checkForUpdates();
+            if (hasUpdates) {
+                // Clear the cache to force fresh data fetch
+                salesDataCache = {
+                    data: null,
+                    lastUpdated: null
+                };
+                
+                // Notify all connected clients
+                wss.clients.forEach((client) => {
+                    if (client.readyState === WebSocket.OPEN) {
+                        client.send(JSON.stringify({
+                            type: 'REFRESH_REQUIRED',
+                            timestamp: new Date().toISOString()
+                        }));
+                    }
+                });
+                console.log('================');
+            }
+        }
+
+        res.status(200).send('OK');
+    } catch (error) {
+        console.error('Webhook error:', error);
+        res.status(500).send('Error processing webhook');
+    }
+});
+
+// Add function to setup webhook
+async function setupDriveWebhook() {
+    try {
+        if (!serviceAccountCredentials) {
+            throw new Error('Service account credentials not initialized');
+        }
+
+        const auth = await google.auth.getClient({
+            credentials: serviceAccountCredentials,
+            scopes: ['https://www.googleapis.com/auth/drive']
+        });
+
+        const driveWebhook = google.drive({ version: 'v3', auth });
+
+        // Your domain where the webhook will be hosted
+        const domain = process.env.DOMAIN || 'your-domain.com';
+        
+        // Create a new watch request
+        const response = await driveWebhook.files.watch({
+            fileId: 'root', // Watch the entire Drive
+            requestBody: {
+                id: `drive-webhook-${Date.now()}`,
+                type: 'web_hook',
+                address: `https://${domain}/api/webhook/drive`,
+                expiration: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 days
+            }
+        });
+
+        console.log('Webhook setup successful:', response.data);
+    } catch (error) {
+        console.error('Error setting up webhook:', error);
+    }
+}
 
 // Error handling
 app.use((err, req, res, next) => {
@@ -538,15 +752,23 @@ if (process.env.NODE_ENV === 'production') {
     });
 }
 
-// Update the server start section
+// Modify server start to ensure drive is initialized before setting up webhook
 const startServer = (port) => {
     try {
-        const server = app.listen(port, () => {
+        server.listen(port, async () => {
             console.log(`Server running on port ${port}`);
+            
+            // Initialize Drive first
+            await initializeDrive();
+            
+            // Then setup webhook
+            await setupDriveWebhook();
+            
             console.log('Available endpoints:');
             console.log('  - GET /api/drive');
             console.log('  - GET /api/drive/folders');
             console.log('  - GET /api/drive/status');
+            console.log('  - POST /api/webhook/drive');
         });
 
         server.on('error', (err) => {

@@ -136,7 +136,7 @@ async function updateTransactionCount() {
 }
 
 // Add automatic refresh every 30 seconds
-setInterval(updateTransactionCount, 30000);
+// setInterval(updateTransactionCount, 30000);
 
 // Declare chart variable at the top level
 let salesChart = null;
@@ -296,9 +296,6 @@ async function updateSalesChart() {
 document.addEventListener('DOMContentLoaded', () => {
     updateSalesChart();
     
-    // Update chart every 30 seconds
-    setInterval(updateSalesChart, 30000);
-
     // Mobile menu toggle
     const menuToggle = document.getElementById('menu-toggle');
     const sidebar = document.querySelector('.sidebar');
@@ -346,4 +343,48 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Listen for window resize
     window.addEventListener('resize', updateChartSize);
+
+    // Modify the WebSocket connection code
+    let wsReconnectTimeout;
+    let isUpdating = false;
+
+    function setupWebSocket() {
+        const ws = new WebSocket(`ws://${window.location.host}`);
+
+        ws.onmessage = async function(event) {
+            try {
+                if (isUpdating) return;
+                
+                const data = JSON.parse(event.data);
+                if (data.type === 'REFRESH_REQUIRED') {
+                    isUpdating = true;
+                    console.log('New CSV data detected, refreshing...');
+                    await updateSalesChart();
+                    isUpdating = false;
+                }
+            } catch (error) {
+                console.error('Error processing WebSocket message:', error);
+                isUpdating = false;
+            }
+        };
+
+        ws.onclose = function() {
+            console.log('WebSocket connection closed. Attempting to reconnect...');
+            clearTimeout(wsReconnectTimeout);
+            wsReconnectTimeout = setTimeout(setupWebSocket, 5000);
+        };
+
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+
+        // Cleanup function
+        return () => {
+            clearTimeout(wsReconnectTimeout);
+            ws.close();
+        };
+    }
+
+    // Initialize WebSocket connection
+    setupWebSocket();
 }); 
