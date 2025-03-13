@@ -53,8 +53,5 @@
     "ADMIN_PASSWORD": "1234",
     "NODE_ENV": "production",
     "DOMAIN": "your-vercel-domain.vercel.app"
-  },
-  "dependencies": {
-    "ws": "^8.x.x"
   }
 } 

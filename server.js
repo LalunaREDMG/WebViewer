@@ -735,7 +735,7 @@ if (process.env.NODE_ENV === 'production') {
 // Modify server start to ensure drive is initialized before setting up webhook
 const startServer = (port) => {
     try {
-        server.listen(port, async () => {
+        app.listen(port, async () => {
             console.log(`Server running on port ${port}`);
             
             // Initialize Drive first
@@ -751,7 +751,8 @@ const startServer = (port) => {
             console.log('  - POST /api/webhook/drive');
         });
 
-        server.on('error', (err) => {
+        // Move error handling to the app level
+        app.on('error', (err) => {
             if (err.code === 'EADDRINUSE') {
                 console.error(`Port ${port} is already in use.`);
                 console.error('Please try these steps:');
